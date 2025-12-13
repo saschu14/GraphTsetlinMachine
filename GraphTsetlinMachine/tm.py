@@ -26,7 +26,7 @@ import sys
 
 import numpy as np
 
-import kernels as kernels
+import GraphTsetlinMachine.kernels as kernels
 
 import pycuda.curandom as curandom
 import pycuda.driver as cuda
