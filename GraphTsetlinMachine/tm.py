@@ -23,36 +23,18 @@
 
 import pickle
 import sys
-from time import time
 
 import numpy as np
+
+import kernels as kernels
+
+import pycuda.curandom as curandom
+import pycuda.driver as cuda
+import pycuda.autoinit
+from pycuda.compiler import SourceModule
 from scipy.sparse import csr_matrix
-
-# ------------------------------------------------------------
-# Backend selection: CUDA if available, otherwise CPU fallback
-# ------------------------------------------------------------
-try:
-    import pycuda.autoinit
-    import pycuda.driver as cuda
-    import pycuda.curandom as curandom
-    from pycuda.compiler import SourceModule
-
-    import kernels as kernels
-
-    BACKEND = "cuda"
-    print("[tm.py] Using CUDA backend")
-
-except Exception as e:
-    BACKEND = "cpu"
-    cuda = None
-    curandom = None
-    SourceModule = None
-
-    print("[tm.py] CUDA not available, falling back to CPU backend")
-    print("[tm.py] Reason:", e)
-
-    import kernels_cpu as kernels
-
+import sys
+from time import time
 
 g = curandom.XORWOWRandomNumberGenerator() 
 
