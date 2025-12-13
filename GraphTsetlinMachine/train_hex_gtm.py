@@ -1,8 +1,9 @@
 import argparse
+import time
 import numpy as np
 
 from GraphTsetlinMachine.tm import MultiClassGraphTsetlinMachine  # or GraphTsetlinMachine for strict binary
-from GraphTsetlinMachine.hex_graphs import boards_to_graphs
+from GraphTsetlinMachine.hex_graph import boards_to_graphs
 
 BOARD_DIM = 11
 
@@ -40,6 +41,8 @@ def train_and_evaluate(
     hypervector_size: int = 128,
     hypervector_bits: int = 2,
     seed: int = 1,
+    log_every: int = 1,
+    eval_every: int = 0,  # set to e.g. 10 to evaluate every 10 epochs (costs time)
 ):
     # --- Load dataset ---
     boards, labels = load_hex_dataset_npz(dataset_path)
@@ -87,15 +90,42 @@ def train_and_evaluate(
         one_hot_encoding=False,
     )
 
-    # --- Training ---
+    # --- Training with timing ---
     print(
         f"Training GTM: clauses={clauses}, T={T}, s={s}, depth={depth}, "
         f"epochs={epochs}, message_size={message_size}"
     )
 
-    tm.fit(graphs_train, y_train, epochs=epochs)
+    start = time.time()
+    epoch_times = []
 
-    # --- Evaluation ---
+    for e in range(epochs):
+        t0 = time.time()
+        tm.fit(graphs_train, y_train, epochs=1)
+        t1 = time.time()
+
+        dt = t1 - t0
+        epoch_times.append(dt)
+
+        # ETA based on average epoch time so far (includes first-epoch overhead)
+        avg = sum(epoch_times) / len(epoch_times)
+        remaining = avg * (epochs - (e + 1))
+
+        if log_every > 0 and ((e + 1) % log_every == 0):
+            msg = f"Epoch {e+1}/{epochs} | {dt:.2f}s | avg {avg:.2f}s | ETA ~ {remaining/60:.1f} min"
+
+            if eval_every and ((e + 1) % eval_every == 0):
+                # Optional: evaluation is expensive, so do it periodically
+                y_pred_test = tm.predict(graphs_test)
+                test_acc = (y_pred_test == y_test).mean()
+                msg += f" | test_acc {test_acc*100:.2f}%"
+
+            print(msg)
+
+    total = time.time() - start
+    print(f"Training time total: {total/60:.2f} minutes")
+
+    # --- Final Evaluation ---
     print("Evaluating...")
     y_pred_train = tm.predict(graphs_train)
     y_pred_test = tm.predict(graphs_test)
@@ -126,6 +156,10 @@ def main():
     parser.add_argument("--hypervector-bits", type=int, default=2)
     parser.add_argument("--seed", type=int, default=1)
 
+    # new flags
+    parser.add_argument("--log-every", type=int, default=1, help="Print timing every N epochs (default: 1)")
+    parser.add_argument("--eval-every", type=int, default=0, help="Evaluate test accuracy every N epochs (0=off)")
+
     args = parser.parse_args()
 
     train_and_evaluate(
@@ -140,6 +174,8 @@ def main():
         hypervector_size=args.hypervector_size,
         hypervector_bits=args.hypervector_bits,
         seed=args.seed,
+        log_every=args.log_every,
+        eval_every=args.eval_every,
     )
 
 
