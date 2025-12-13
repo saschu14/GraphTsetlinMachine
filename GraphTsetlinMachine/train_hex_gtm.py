@@ -1,8 +1,8 @@
 import argparse
 import numpy as np
 
-from tm import MultiClassGraphTsetlinMachine  # or GraphTsetlinMachine for strict binary
-from hex_graphs import boards_to_graphs
+from GraphTsetlinMachine.tm import MultiClassGraphTsetlinMachine  # or GraphTsetlinMachine for strict binary
+from GraphTsetlinMachine.hex_graphs import boards_to_graphs
 
 BOARD_DIM = 11
 

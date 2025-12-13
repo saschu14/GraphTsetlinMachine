@@ -1,5 +1,5 @@
 import numpy as np
-from graphs import Graphs
+from GraphTsetlinMachine.graphs import Graphs
 
 # Directions for Hex neighbors (axial-ish on 2D grid):
 # Up, Up-Right, Left, Right, Down-Left, Down
