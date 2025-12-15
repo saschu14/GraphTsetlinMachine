@@ -141,7 +141,7 @@ def train_and_evaluate(
     best_test = -1.0
     best_epoch = -1
     best_state = None
-    patience = 6          # number of evals with no improvement
+    patience = 12          # number of evals with no improvement
     bad = 0
     
     w_before = None
