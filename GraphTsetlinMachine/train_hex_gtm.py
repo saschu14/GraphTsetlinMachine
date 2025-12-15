@@ -16,7 +16,7 @@ def load_hex_dataset_npz(path: str):
     """
     data = np.load(path)
     boards = data["boards"]
-    labels = data["labels"].astype(np.int32)
+    labels = data["labels"].astype(np.uint32)
     moves_left = data["moves_left"].astype(np.int32)
 
     mask = (moves_left == 0)   # only completed positions
@@ -52,6 +52,8 @@ def train_and_evaluate(
     # --- Load dataset ---
     boards, labels = load_hex_dataset_npz(dataset_path)
     n_samples = boards.shape[0]
+    counts = np.bincount(labels.astype(np.int64))
+    print("Label counts:", counts, "majority baseline:", counts.max() / counts.sum())
 
     rng = np.random.RandomState(seed)
     indices = rng.permutation(n_samples)
@@ -142,6 +144,8 @@ def train_and_evaluate(
 
     print(f"Train accuracy: {train_acc * 100:.2f}%")
     print(f"Test accuracy:  {test_acc * 100:.2f}%")
+    pred_counts = np.bincount(y_pred_test.astype(np.int64), minlength=counts.shape[0])
+    print("Pred counts (test):", pred_counts)
 
 
 def main():
