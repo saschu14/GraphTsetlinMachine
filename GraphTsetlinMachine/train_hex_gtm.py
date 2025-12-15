@@ -125,7 +125,7 @@ def train_and_evaluate(
 
     for e in range(epochs):
         t0 = time.time()
-        tm.fit(graphs_train, y_train, epochs=1)
+        tm.fit(graphs_train, y_train, epochs=epochs)
         t1 = time.time()
 
         dt = t1 - t0
