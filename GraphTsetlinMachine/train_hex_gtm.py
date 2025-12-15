@@ -157,13 +157,12 @@ def train_and_evaluate(
         dt = time.time() - t0
         epoch_times.append(dt)
 
+        done += n
         if done == n:  # after first chunk
             w_before = tm.get_state()[1].copy()
         elif done == 2*n:  # after second chunk
             w_after = tm.get_state()[1].copy()
             print("weights changed after 2 chunks:", np.any(w_before != w_after))
-
-        done += n
 
         # logging
         if log_every and log_every > 0:
@@ -174,6 +173,7 @@ def train_and_evaluate(
             if eval_every and eval_every > 0:
                 y_pred_train = tm.predict(graphs_train)
                 y_pred_test = tm.predict(graphs_test)
+                print("[dbg] loop y_test sum:", int(y_test.sum()), "pred sum:", int(y_pred_test.sum()))
                 train_acc = (y_pred_train == y_train).mean()
                 test_acc = (y_pred_test == y_test).mean()
                 if test_acc > best_test + 1e-6:
@@ -216,6 +216,8 @@ def train_and_evaluate(
     print("graphs_test n:", graphs_test.number_of_graphs)
     print("y_test n:", len(y_test))
     print("Test fingerprint:", int(np.sum(y_test[:200]) + 1000*np.mean(y_test) + 100000*len(y_test)))
+    
+    print("[dbg] final y_test sum:", int(y_test.sum()))
 
     print("Evaluating...")
     y_pred_train = tm.predict(graphs_train)
