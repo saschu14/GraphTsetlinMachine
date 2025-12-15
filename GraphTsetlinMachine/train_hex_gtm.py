@@ -75,7 +75,6 @@ def train_and_evaluate(
     split = int(0.8 * n_samples)
     boards_train, boards_test = boards[:split], boards[split:]
     y_train, y_test = labels[:split], labels[split:]
-    print("graphs_test n:", graphs_test.number_of_graphs)
     print("y_test n:", len(y_test))
     print("Test fingerprint:", int(np.sum(y_test[:200]) + 1000*np.mean(y_test) + 100000*len(y_test)))
 
@@ -114,6 +113,7 @@ def train_and_evaluate(
         hypervector_size=hypervector_size,
         hypervector_bits=hypervector_bits,
     )
+    print("graphs_test n:", graphs_test.number_of_graphs)
 
     # --- Initialize GTM ---
     print("Initializing Graph Tsetlin Machine...")
