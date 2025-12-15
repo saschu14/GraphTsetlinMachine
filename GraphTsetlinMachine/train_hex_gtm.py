@@ -137,9 +137,12 @@ def train_and_evaluate(
 
     done = 0
     epoch_times = []
-    best_test = -1
+    best_test = -1.0
     best_epoch = -1
-
+    best_state = None
+    patience = 6          # number of evals with no improvement
+    bad = 0
+    
     w_before = None
 
     while done < epochs:
@@ -169,9 +172,20 @@ def train_and_evaluate(
                 y_pred_test = tm.predict(graphs_test)
                 train_acc = (y_pred_train == y_train).mean()
                 test_acc = (y_pred_test == y_test).mean()
-                if test_acc > best_test:
+                if test_acc > best_test + 1e-6:
                     best_test = test_acc
                     best_epoch = done
+                    best_state = tm.get_state()
+                    bad = 0
+                else:
+                    bad += 1
+
+                msg += f" | best_test {best_test*100:.2f}% @ {best_epoch}"
+
+                if bad >= patience:
+                    print(f"Early stopping at epoch {done} (best @ {best_epoch})")
+                    break
+
                 msg += f" | train_acc {train_acc*100:.2f}% | test_acc {test_acc*100:.2f}%"
 
                 # Detailed prediction counts
@@ -180,6 +194,10 @@ def train_and_evaluate(
                 msg += f" | pred_train {pred_counts_train.tolist()} | pred_test {pred_counts_test.tolist()}"
 
             print(msg)
+    if best_state is not None:
+        tm.set_state(best_state)
+        print(f"Restored best model @ epoch {best_epoch} with best_test {best_test*100:.2f}%")
+
 
     total = time.time() - start
     print(f"Training time total: {total/60:.2f} minutes")
@@ -196,7 +214,7 @@ def train_and_evaluate(
     print(f"Test accuracy:  {test_acc*100:.2f}%")
     pred_counts = np.bincount(y_pred_test.astype(np.int64), minlength=2)
     print("Pred counts (test):", pred_counts)
-    print(f"... | best_test {best_test*100:.2f}% @ {best_epoch}")
+    print(f"Best_test {best_test*100:.2f}% @ {best_epoch}")
 
 def main():
     parser = argparse.ArgumentParser(description="Train Graph Tsetlin Machine on Hex positions.")
