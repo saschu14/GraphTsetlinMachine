@@ -64,6 +64,18 @@ def train_and_evaluate(
     boards_train, boards_test = boards[:split], boards[split:]
     y_train, y_test = labels[:split], labels[split:]
 
+    # Balance training set to avoid majority/minority collapse
+    idx0 = np.where(y_train == 0)[0]
+    idx1 = np.where(y_train == 1)[0]
+    m = min(len(idx0), len(idx1))
+    rng = np.random.RandomState(seed)
+    keep = np.concatenate([rng.choice(idx0, m, replace=False), rng.choice(idx1, m, replace=False)])
+    rng.shuffle(keep)
+
+    boards_train = boards_train[keep]
+    y_train = y_train[keep]
+
+    print("Balanced train counts:", np.bincount(y_train.astype(np.int64)))
     print(f"Loaded {n_samples} positions.")
     print(f"Train: {boards_train.shape[0]}, Test: {boards_test.shape[0]}")
 
