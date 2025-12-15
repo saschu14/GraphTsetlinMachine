@@ -207,7 +207,16 @@ def train_and_evaluate(
     if best_state is not None:
         tm.set_state(best_state)
         print(f"Restored best model @ epoch {best_epoch} with best_test {best_test*100:.2f}%")
+        tm.set_state(best_state)
 
+        y1 = tm.predict(graphs_test)
+        a1 = (y1 == y_test).mean()
+
+        y2 = tm.predict(graphs_test)
+        a2 = (y2 == y_test).mean()
+
+        print("[dbg] predict stable:", np.array_equal(y1, y2))
+        print(f"[dbg] restored acc1={a1*100:.2f} acc2={a2*100:.2f}")
 
     total = time.time() - start
     print(f"Training time total: {total/60:.2f} minutes")

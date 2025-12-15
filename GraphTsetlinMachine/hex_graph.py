@@ -1,4 +1,5 @@
 import numpy as np
+from collections import deque
 from GraphTsetlinMachine.graphs import Graphs
 
 # 6 Hex directions (outgoing)
@@ -12,15 +13,34 @@ _HEX_DIRECTIONS = [
 ]
 _DIR_NAMES = ["D0", "D1", "D2", "D3", "D4", "D5"]
 
-# Occupancy-pair edge types
-P0_CONN = "P0_CONN"
-P1_CONN = "P1_CONN"
-OPP_CONN = "OPP_CONN"
-EMPTY_CONN = "EMPTY_CONN"
 
-# Goal edge types
-P0_GOAL_EDGE = "P0_GOAL"
-P1_GOAL_EDGE = "P1_GOAL"
+def _idx(r: int, c: int, n: int) -> int:
+    return r * n + c
+
+
+def _bfs_reach(board: np.ndarray, player_val: int, starts: list[tuple[int, int]]) -> np.ndarray:
+    """
+    BFS on the hex grid restricted to cells == player_val.
+    Returns boolean array reach[r,c] = True if reachable from any start cell.
+    """
+    n = board.shape[0]
+    reach = np.zeros((n, n), dtype=bool)
+    q = deque()
+
+    for (r, c) in starts:
+        if board[r, c] == player_val and not reach[r, c]:
+            reach[r, c] = True
+            q.append((r, c))
+
+    while q:
+        r, c = q.popleft()
+        for dr, dc in _HEX_DIRECTIONS:
+            rr, cc = r + dr, c + dc
+            if 0 <= rr < n and 0 <= cc < n and not reach[rr, cc] and board[rr, cc] == player_val:
+                reach[rr, cc] = True
+                q.append((rr, cc))
+
+    return reach
 
 
 def boards_to_graphs(
@@ -31,39 +51,37 @@ def boards_to_graphs(
     hypervector_bits: int = 8,
 ) -> Graphs:
     """
-    Hex -> Graphs encoding with:
-      - Cells as nodes "0".."N-1"
-      - Goal nodes: P0_TOP, P0_BOTTOM, P1_LEFT, P1_RIGHT
-      - Directional neighbor edges D0..D5
-      - Occupancy-pair edges: P0_CONN, P1_CONN, OPP_CONN, EMPTY_CONN
-      - Bidirectional, conditional goal edges
-      - Node properties:
-          * occupancy (Empty/Player0/Player1)
-          * Row/Col
-          * local neighbor statistics:
-              - N0_k: k player0 neighbors (k=0..6)
-              - N1_k: k player1 neighbors (k=0..6)
-              - NE_k: k empty neighbors (k=0..6)
-      - Node types depend on occupancy: EmptyCell / P0Cell / P1Cell
-      - Exact per-node edge counts
-    """
+    Builds one graph per board.
 
+    Nodes:
+      - One node per cell: "0".."N-1"
+      - 4 goal nodes: P0_TOP, P0_BOTTOM, P1_LEFT, P1_RIGHT
+
+    Edges:
+      - 6 directional neighbor edge types D0..D5 (static)
+      - Conditional goal edges:
+          * P0 stones connect to P0_TOP/P0_BOTTOM if on those borders
+          * P1 stones connect to P1_LEFT/P1_RIGHT if on those borders
+
+    Node properties:
+      - occupancy: Empty / Player0 / Player1
+      - row/col symbols: Row0.., Col0..
+      - reachability (completed-board-friendly features):
+          * P0_RT, P0_RB, P0_BOTH
+          * P1_RL, P1_RR, P1_BOTH
+    """
     boards = np.asarray(boards)
     n_graphs = boards.shape[0]
 
-    # ---- Symbols (node property vocabulary) ----
+    # ---- Symbols (vocabulary) ----
     if base_graphs is None:
         symbols = ["Empty", "Player0", "Player1"]
         symbols += [f"Row{r}" for r in range(board_dim)]
         symbols += [f"Col{c}" for c in range(board_dim)]
-
-        # Neighbor-stat symbols
-        symbols += [f"N0_{k}" for k in range(7)]
-        symbols += [f"N1_{k}" for k in range(7)]
-        symbols += [f"NE_{k}" for k in range(7)]
-
-        # Goal node names (harmless to include)
         symbols += ["P0_TOP", "P0_BOTTOM", "P1_LEFT", "P1_RIGHT"]
+
+        # Reachability properties
+        symbols += ["P0_RT", "P0_RB", "P0_BOTH", "P1_RL", "P1_RR", "P1_BOTH"]
 
         graphs = Graphs(
             number_of_graphs=n_graphs,
@@ -77,191 +95,126 @@ def boards_to_graphs(
     # ---- Node naming ----
     num_board_nodes = board_dim * board_dim
     goal_nodes = ["P0_TOP", "P0_BOTTOM", "P1_LEFT", "P1_RIGHT"]
-    num_nodes = num_board_nodes + len(goal_nodes)
+    all_nodes = [str(i) for i in range(num_board_nodes)] + goal_nodes
 
-    def idx(r: int, c: int) -> int:
-        return r * board_dim + c
+    # out_edges[src] = list of (dst, edge_type) for STATIC neighbor edges
+    out_edges: dict[str, list[tuple[str, str]]] = {name: [] for name in all_nodes}
 
-    # ---- Precompute directional neighbor lists for each cell (static) ----
-    # neighbors[u] = list of (v_index, direction_edge_type)
-    neighbors: list[list[tuple[int, str]]] = [[] for _ in range(num_board_nodes)]
     for r in range(board_dim):
         for c in range(board_dim):
-            u = idx(r, c)
+            u = str(_idx(r, c, board_dim))
             for d, (dr, dc) in enumerate(_HEX_DIRECTIONS):
                 rr, cc = r + dr, c + dc
                 if 0 <= rr < board_dim and 0 <= cc < board_dim:
-                    v = idx(rr, cc)
-                    neighbors[u].append((v, _DIR_NAMES[d]))
+                    v = str(_idx(rr, cc, board_dim))
+                    out_edges[u].append((v, _DIR_NAMES[d]))
 
-    # ---- Number of nodes per graph ----
+    # ---- Tell Graphs how many nodes per graph ----
+    num_nodes = len(all_nodes)
     for g in range(n_graphs):
         graphs.set_number_of_graph_nodes(g, num_nodes)
     graphs.prepare_node_configuration()
 
-    # ---- Add nodes with EXACT out-degree per graph ----
+    # ---- Add nodes with safe edge counts ----
+    # Each cell has 6 neighbor edges + up to 2 conditional goal edges => max 8
+    for g in range(n_graphs):
+        for name in all_nodes:
+            if name.isdigit():
+                edge_slots = 8
+                node_type = "Cell"
+            else:
+                edge_slots = 0
+                node_type = "Goal"
+
+            graphs.add_graph_node(
+                graph_id=g,
+                node_name=name,
+                number_of_graph_node_edges=edge_slots,
+                node_type_name=node_type,
+            )
+
+    graphs.prepare_edge_configuration()
+
+    # ---- Add static neighbor edges ----
+    for g in range(n_graphs):
+        for src, edges in out_edges.items():
+            if not src.isdigit():
+                continue
+            for dst, etype in edges:
+                graphs.add_graph_node_edge(
+                    graph_id=g,
+                    source_node_name=src,
+                    destination_node_name=dst,
+                    edge_type_name=etype,
+                )
+
+    # ---- Add node properties + conditional goal edges + reachability props ----
     for g in range(n_graphs):
         board = boards[g]
         if board.shape != (board_dim, board_dim):
             raise ValueError(f"Board shape {board.shape} != {(board_dim, board_dim)}")
 
-        # Goal out-degrees for bidirectional goal edges (outgoing from goals)
-        p0_top_deg = int(np.sum(board[0, :] == 1))
-        p0_bottom_deg = int(np.sum(board[board_dim - 1, :] == 1))
-        p1_left_deg = int(np.sum(board[:, 0] == 2))
-        p1_right_deg = int(np.sum(board[:, board_dim - 1] == 2))
+        # Reachability sets
+        # P0 (value 1): top and bottom
+        p0_top_starts = [(0, c) for c in range(board_dim)]
+        p0_bot_starts = [(board_dim - 1, c) for c in range(board_dim)]
+        p0_rt = _bfs_reach(board, 1, p0_top_starts)
+        p0_rb = _bfs_reach(board, 1, p0_bot_starts)
+        p0_both = p0_rt & p0_rb
 
-        # Cell nodes
+        # P1 (value 2): left and right
+        p1_left_starts = [(r, 0) for r in range(board_dim)]
+        p1_right_starts = [(r, board_dim - 1) for r in range(board_dim)]
+        p1_rl = _bfs_reach(board, 2, p1_left_starts)
+        p1_rr = _bfs_reach(board, 2, p1_right_starts)
+        p1_both = p1_rl & p1_rr
+
         for r in range(board_dim):
             for c in range(board_dim):
-                u = idx(r, c)
-                u_name = str(u)
-                u_val = int(board[r, c])
+                node = str(_idx(r, c, board_dim))
+                v = int(board[r, c])
 
-                if u_val == 0:
-                    node_type = "EmptyCell"
-                elif u_val == 1:
-                    node_type = "P0Cell"
-                elif u_val == 2:
-                    node_type = "P1Cell"
-                else:
-                    raise ValueError(f"Invalid board value {u_val} at {(r, c)}")
-
-                # Base: directional neighbor edges
-                deg = len(neighbors[u])
-
-                # Extra: occupancy-pair edges
-                for v, _dir_type in neighbors[u]:
-                    vr, vc = divmod(v, board_dim)
-                    v_val = int(board[vr, vc])
-
-                    if u_val == 0 and v_val == 0:
-                        deg += 1
-                    elif u_val == 1 and v_val == 1:
-                        deg += 1
-                    elif u_val == 2 and v_val == 2:
-                        deg += 1
-                    elif (u_val in (1, 2)) and (v_val in (1, 2)) and (u_val != v_val):
-                        deg += 1
-
-                # Conditional cell->goal edges (only correct player's stones)
-                if u_val == 1:
-                    if r == 0:
-                        deg += 1
-                    if r == board_dim - 1:
-                        deg += 1
-                elif u_val == 2:
-                    if c == 0:
-                        deg += 1
-                    if c == board_dim - 1:
-                        deg += 1
-
-                graphs.add_graph_node(
-                    graph_id=g,
-                    node_name=u_name,
-                    number_of_graph_node_edges=deg,
-                    node_type_name=node_type,
-                )
-
-        # Goal nodes
-        graphs.add_graph_node(g, "P0_TOP", p0_top_deg, "P0Goal")
-        graphs.add_graph_node(g, "P0_BOTTOM", p0_bottom_deg, "P0Goal")
-        graphs.add_graph_node(g, "P1_LEFT", p1_left_deg, "P1Goal")
-        graphs.add_graph_node(g, "P1_RIGHT", p1_right_deg, "P1Goal")
-
-    graphs.prepare_edge_configuration()
-
-    # ---- Add edges + properties ----
-    for g in range(n_graphs):
-        board = boards[g]
-
-        # Goal -> cell edges (bidirectional goal links: outgoing from goals)
-        for c in range(board_dim):
-            if int(board[0, c]) == 1:
-                graphs.add_graph_node_edge(g, "P0_TOP", str(idx(0, c)), P0_GOAL_EDGE)
-            if int(board[board_dim - 1, c]) == 1:
-                graphs.add_graph_node_edge(g, "P0_BOTTOM", str(idx(board_dim - 1, c)), P0_GOAL_EDGE)
-
-        for r in range(board_dim):
-            if int(board[r, 0]) == 2:
-                graphs.add_graph_node_edge(g, "P1_LEFT", str(idx(r, 0)), P1_GOAL_EDGE)
-            if int(board[r, board_dim - 1]) == 2:
-                graphs.add_graph_node_edge(g, "P1_RIGHT", str(idx(r, board_dim - 1)), P1_GOAL_EDGE)
-
-        # Cells: edges + properties
-        for r in range(board_dim):
-            for c in range(board_dim):
-                u = idx(r, c)
-                u_name = str(u)
-                u_val = int(board[r, c])
-
-                # 1) Directional neighbor edges
-                for v, dir_type in neighbors[u]:
-                    graphs.add_graph_node_edge(g, u_name, str(v), dir_type)
-
-                # 2) Occupancy-pair edges + count neighbors by occupancy
-                n0 = n1 = ne = 0
-                for v, _dir_type in neighbors[u]:
-                    vr, vc = divmod(v, board_dim)
-                    v_val = int(board[vr, vc])
-                    v_name = str(v)
-
-                    if v_val == 0:
-                        ne += 1
-                    elif v_val == 1:
-                        n0 += 1
-                    elif v_val == 2:
-                        n1 += 1
-
-                    if u_val == 0 and v_val == 0:
-                        graphs.add_graph_node_edge(g, u_name, v_name, EMPTY_CONN)
-                    elif u_val == 1 and v_val == 1:
-                        graphs.add_graph_node_edge(g, u_name, v_name, P0_CONN)
-                    elif u_val == 2 and v_val == 2:
-                        graphs.add_graph_node_edge(g, u_name, v_name, P1_CONN)
-                    elif (u_val in (1, 2)) and (v_val in (1, 2)) and (u_val != v_val):
-                        graphs.add_graph_node_edge(g, u_name, v_name, OPP_CONN)
-
-                # 3) Node properties: occupancy + position
-                if u_val == 0:
+                if v == 0:
                     occ = "Empty"
-                elif u_val == 1:
+                elif v == 1:
                     occ = "Player0"
-                elif u_val == 2:
+                elif v == 2:
                     occ = "Player1"
                 else:
-                    raise ValueError(f"Invalid board value {u_val} at {(r, c)}")
+                    raise ValueError(f"Invalid board value {v} at {(r, c)}")
 
-                graphs.add_graph_node_property(g, u_name, occ)
-                graphs.add_graph_node_property(g, u_name, f"Row{r}")
-                graphs.add_graph_node_property(g, u_name, f"Col{c}")
+                graphs.add_graph_node_property(g, node, occ)
+                graphs.add_graph_node_property(g, node, f"Row{r}")
+                graphs.add_graph_node_property(g, node, f"Col{c}")
 
-                # 4) Node properties: local neighbor statistics
-                graphs.add_graph_node_property(g, u_name, f"N0_{n0}")
-                graphs.add_graph_node_property(g, u_name, f"N1_{n1}")
-                graphs.add_graph_node_property(g, u_name, f"NE_{ne}")
+                # Reachability properties (only meaningful on stones)
+                if v == 1:
+                    if p0_rt[r, c]:
+                        graphs.add_graph_node_property(g, node, "P0_RT")
+                    if p0_rb[r, c]:
+                        graphs.add_graph_node_property(g, node, "P0_RB")
+                    if p0_both[r, c]:
+                        graphs.add_graph_node_property(g, node, "P0_BOTH")
 
-                # 5) Cell -> goal edges (bidirectional goal links: incoming to goals)
-                if u_val == 1:
+                    # Conditional goal edges
                     if r == 0:
-                        graphs.add_graph_node_edge(g, u_name, "P0_TOP", P0_GOAL_EDGE)
+                        graphs.add_graph_node_edge(g, node, "P0_TOP", "P0_GOAL")
                     if r == board_dim - 1:
-                        graphs.add_graph_node_edge(g, u_name, "P0_BOTTOM", P0_GOAL_EDGE)
-                elif u_val == 2:
-                    if c == 0:
-                        graphs.add_graph_node_edge(g, u_name, "P1_LEFT", P1_GOAL_EDGE)
-                    if c == board_dim - 1:
-                        graphs.add_graph_node_edge(g, u_name, "P1_RIGHT", P1_GOAL_EDGE)
+                        graphs.add_graph_node_edge(g, node, "P0_BOTTOM", "P0_GOAL")
 
-    # Optional debug: check a few valid node ids near the end of the board
-    debug_nodes = [str(num_board_nodes - k) for k in (1, 2, 3, 4) if num_board_nodes - k >= 0]
-    for g in [0, n_graphs - 1]:
-        for name in debug_nodes:
-            nid = graphs.graph_node_id[g][name]
-            abs_id = graphs.node_index[g] + nid
-            print(g, name,
-                "expected", graphs.number_of_graph_node_edges[abs_id],
-                "added", graphs.graph_node_edge_counter[abs_id])
+                elif v == 2:
+                    if p1_rl[r, c]:
+                        graphs.add_graph_node_property(g, node, "P1_RL")
+                    if p1_rr[r, c]:
+                        graphs.add_graph_node_property(g, node, "P1_RR")
+                    if p1_both[r, c]:
+                        graphs.add_graph_node_property(g, node, "P1_BOTH")
+
+                    # Conditional goal edges
+                    if c == 0:
+                        graphs.add_graph_node_edge(g, node, "P1_LEFT", "P1_GOAL")
+                    if c == board_dim - 1:
+                        graphs.add_graph_node_edge(g, node, "P1_RIGHT", "P1_GOAL")
 
     graphs.encode()
     return graphs
