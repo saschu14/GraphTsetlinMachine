@@ -123,33 +123,22 @@ def train_and_evaluate(
     start = time.time()
     epoch_times = []
 
-    for e in range(epochs):
+    for start_epoch in range(0, epochs, eval_every):
+        n = min(eval_every, epochs - start_epoch)
+
         t0 = time.time()
-        tm.fit(graphs_train, y_train, epochs=epochs)
-        t1 = time.time()
+        tm.fit(graphs_train, y_train, epochs=n)
+        dt = time.time() - t0
 
-        dt = t1 - t0
-        epoch_times.append(dt)
+        y_pred_train = tm.predict(graphs_train)
+        train_acc = (y_pred_train == y_train).mean()
 
-        # ETA based on average epoch time so far (includes first-epoch overhead)
-        avg = sum(epoch_times) / len(epoch_times)
-        remaining = avg * (epochs - (e + 1))
+        y_pred_test = tm.predict(graphs_test)
+        test_acc = (y_pred_test == y_test).mean()
 
-        if log_every > 0 and ((e + 1) % log_every == 0):
-            msg = f"Epoch {e+1}/{epochs} | {dt:.2f}s | avg {avg:.2f}s | ETA ~ {remaining/60:.1f} min"
+        done = start_epoch + n
+        print(f"Epoch {done}/{epochs} | {dt:.2f}s | train_acc {train_acc*100:.2f}% | test_acc {test_acc*100:.2f}%")
 
-            if eval_every and ((e + 1) % eval_every == 0):
-                # Test accuracy
-                y_pred_test = tm.predict(graphs_test)
-                test_acc = (y_pred_test == y_test).mean()
-
-                # ✅ Train accuracy (add this)
-                y_pred_train = tm.predict(graphs_train)
-                train_acc = (y_pred_train == y_train).mean()
-
-                msg += f" | train_acc {train_acc*100:.2f}% | test_acc {test_acc*100:.2f}%"
-
-            print(msg)
 
     total = time.time() - start
     print(f"Training time total: {total/60:.2f} minutes")
