@@ -33,16 +33,19 @@ def boards_to_graphs(
     """
     Hex -> Graphs encoding with:
       - Cells as nodes "0".."N-1"
-      - 4 goal nodes: P0_TOP, P0_BOTTOM, P1_LEFT, P1_RIGHT
-      - Directional neighbor edges D0..D5 between all adjacent cells
-      - Additional occupancy-pair edges between neighbors:
-          * P0_CONN, P1_CONN, OPP_CONN, EMPTY_CONN
-      - Goal edges are BIDIRECTIONAL and CONDITIONAL on occupancy:
-          * Player0 stones on top/bottom connect <-> P0_TOP/P0_BOTTOM
-          * Player1 stones on left/right connect <-> P1_LEFT/P1_RIGHT
-      - Node properties: occupancy + Row/Col
+      - Goal nodes: P0_TOP, P0_BOTTOM, P1_LEFT, P1_RIGHT
+      - Directional neighbor edges D0..D5
+      - Occupancy-pair edges: P0_CONN, P1_CONN, OPP_CONN, EMPTY_CONN
+      - Bidirectional, conditional goal edges
+      - Node properties:
+          * occupancy (Empty/Player0/Player1)
+          * Row/Col
+          * local neighbor statistics:
+              - N0_k: k player0 neighbors (k=0..6)
+              - N1_k: k player1 neighbors (k=0..6)
+              - NE_k: k empty neighbors (k=0..6)
       - Node types depend on occupancy: EmptyCell / P0Cell / P1Cell
-      - Exact per-node edge counts (required by this Graphs implementation)
+      - Exact per-node edge counts
     """
 
     boards = np.asarray(boards)
@@ -53,7 +56,13 @@ def boards_to_graphs(
         symbols = ["Empty", "Player0", "Player1"]
         symbols += [f"Row{r}" for r in range(board_dim)]
         symbols += [f"Col{c}" for c in range(board_dim)]
-        # Goal node names aren't properties, but harmless to include
+
+        # Neighbor-stat symbols
+        symbols += [f"N0_{k}" for k in range(7)]
+        symbols += [f"N1_{k}" for k in range(7)]
+        symbols += [f"NE_{k}" for k in range(7)]
+
+        # Goal node names (harmless to include)
         symbols += ["P0_TOP", "P0_BOTTOM", "P1_LEFT", "P1_RIGHT"]
 
         graphs = Graphs(
@@ -68,8 +77,7 @@ def boards_to_graphs(
     # ---- Node naming ----
     num_board_nodes = board_dim * board_dim
     goal_nodes = ["P0_TOP", "P0_BOTTOM", "P1_LEFT", "P1_RIGHT"]
-    all_nodes = [str(i) for i in range(num_board_nodes)] + goal_nodes
-    num_nodes = len(all_nodes)
+    num_nodes = num_board_nodes + len(goal_nodes)
 
     def idx(r: int, c: int) -> int:
         return r * board_dim + c
@@ -97,20 +105,19 @@ def boards_to_graphs(
         if board.shape != (board_dim, board_dim):
             raise ValueError(f"Board shape {board.shape} != {(board_dim, board_dim)}")
 
-        # Precompute goal out-degrees for this graph (bidirectional goal edges)
+        # Goal out-degrees for bidirectional goal edges (outgoing from goals)
         p0_top_deg = int(np.sum(board[0, :] == 1))
         p0_bottom_deg = int(np.sum(board[board_dim - 1, :] == 1))
         p1_left_deg = int(np.sum(board[:, 0] == 2))
         p1_right_deg = int(np.sum(board[:, board_dim - 1] == 2))
 
-        # Add all cell nodes
+        # Cell nodes
         for r in range(board_dim):
             for c in range(board_dim):
                 u = idx(r, c)
                 u_name = str(u)
                 u_val = int(board[r, c])
 
-                # Node type by occupancy
                 if u_val == 0:
                     node_type = "EmptyCell"
                 elif u_val == 1:
@@ -120,10 +127,10 @@ def boards_to_graphs(
                 else:
                     raise ValueError(f"Invalid board value {u_val} at {(r, c)}")
 
-                # Base: directional neighbor edges (always)
+                # Base: directional neighbor edges
                 deg = len(neighbors[u])
 
-                # Extra: occupancy-pair edge per neighbor (sometimes)
+                # Extra: occupancy-pair edges
                 for v, _dir_type in neighbors[u]:
                     vr, vc = divmod(v, board_dim)
                     v_val = int(board[vr, vc])
@@ -137,13 +144,13 @@ def boards_to_graphs(
                     elif (u_val in (1, 2)) and (v_val in (1, 2)) and (u_val != v_val):
                         deg += 1
 
-                # Conditional goal edges from cell -> goal (only correct player's stones)
-                if u_val == 1:  # Player0 connects top-bottom
+                # Conditional cell->goal edges (only correct player's stones)
+                if u_val == 1:
                     if r == 0:
                         deg += 1
                     if r == board_dim - 1:
                         deg += 1
-                elif u_val == 2:  # Player1 connects left-right
+                elif u_val == 2:
                     if c == 0:
                         deg += 1
                     if c == board_dim - 1:
@@ -156,7 +163,7 @@ def boards_to_graphs(
                     node_type_name=node_type,
                 )
 
-        # Add goal nodes with EXACT outgoing edges = number of qualifying border stones
+        # Goal nodes
         graphs.add_graph_node(g, "P0_TOP", p0_top_deg, "P0Goal")
         graphs.add_graph_node(g, "P0_BOTTOM", p0_bottom_deg, "P0Goal")
         graphs.add_graph_node(g, "P1_LEFT", p1_left_deg, "P1Goal")
@@ -164,12 +171,11 @@ def boards_to_graphs(
 
     graphs.prepare_edge_configuration()
 
-    # ---- Add edges + properties (must match declared degrees exactly) ----
+    # ---- Add edges + properties ----
     for g in range(n_graphs):
         board = boards[g]
 
-        # Goal -> cell edges (bidirectional goal links, outgoing from goals)
-        # Only connect to correct player's stones.
+        # Goal -> cell edges (bidirectional goal links: outgoing from goals)
         for c in range(board_dim):
             if int(board[0, c]) == 1:
                 graphs.add_graph_node_edge(g, "P0_TOP", str(idx(0, c)), P0_GOAL_EDGE)
@@ -182,22 +188,30 @@ def boards_to_graphs(
             if int(board[r, board_dim - 1]) == 2:
                 graphs.add_graph_node_edge(g, "P1_RIGHT", str(idx(r, board_dim - 1)), P1_GOAL_EDGE)
 
-        # Cell edges + properties + cell -> goal edges
+        # Cells: edges + properties
         for r in range(board_dim):
             for c in range(board_dim):
                 u = idx(r, c)
                 u_name = str(u)
                 u_val = int(board[r, c])
 
-                # 1) Directional neighbor edges (always)
+                # 1) Directional neighbor edges
                 for v, dir_type in neighbors[u]:
                     graphs.add_graph_node_edge(g, u_name, str(v), dir_type)
 
-                # 2) Occupancy-pair edges (conditional)
+                # 2) Occupancy-pair edges + count neighbors by occupancy
+                n0 = n1 = ne = 0
                 for v, _dir_type in neighbors[u]:
                     vr, vc = divmod(v, board_dim)
                     v_val = int(board[vr, vc])
                     v_name = str(v)
+
+                    if v_val == 0:
+                        ne += 1
+                    elif v_val == 1:
+                        n0 += 1
+                    elif v_val == 2:
+                        n1 += 1
 
                     if u_val == 0 and v_val == 0:
                         graphs.add_graph_node_edge(g, u_name, v_name, EMPTY_CONN)
@@ -208,7 +222,7 @@ def boards_to_graphs(
                     elif (u_val in (1, 2)) and (v_val in (1, 2)) and (u_val != v_val):
                         graphs.add_graph_node_edge(g, u_name, v_name, OPP_CONN)
 
-                # 3) Node properties
+                # 3) Node properties: occupancy + position
                 if u_val == 0:
                     occ = "Empty"
                 elif u_val == 1:
@@ -222,7 +236,12 @@ def boards_to_graphs(
                 graphs.add_graph_node_property(g, u_name, f"Row{r}")
                 graphs.add_graph_node_property(g, u_name, f"Col{c}")
 
-                # 4) Cell -> goal edges (bidirectional goal links, incoming to goals)
+                # 4) Node properties: local neighbor statistics
+                graphs.add_graph_node_property(g, u_name, f"N0_{n0}")
+                graphs.add_graph_node_property(g, u_name, f"N1_{n1}")
+                graphs.add_graph_node_property(g, u_name, f"NE_{ne}")
+
+                # 5) Cell -> goal edges (bidirectional goal links: incoming to goals)
                 if u_val == 1:
                     if r == 0:
                         graphs.add_graph_node_edge(g, u_name, "P0_TOP", P0_GOAL_EDGE)
