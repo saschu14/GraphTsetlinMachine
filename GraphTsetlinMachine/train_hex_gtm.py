@@ -113,6 +113,24 @@ def train_and_evaluate(
         double_hashing=False,
         one_hot_encoding=False,
     )
+    # After tm is created (and after graphs_train is built)
+    X_clause, class_sum = tm.transform(graphs_train)   # shape: (N, clauses)
+    print("transform nonzero fraction:", (X_clause != 0).mean())
+    print("transform abs mean:", np.abs(X_clause).mean())
+    print("class_sum sample:", class_sum[:5])
+
+    # --- Verify that training changes weights ---
+    state0 = tm.get_state()
+    w0 = state0[1].copy()
+
+    tm.fit(graphs_train, y_train, epochs=1)
+
+    state1 = tm.get_state()
+    w1 = state1[1].copy()
+
+    print("weights changed:", np.any(w0 != w1))
+    print("w0 unique:", np.unique(w0, return_counts=True))
+    print("w1 unique:", np.unique(w1, return_counts=True))
 
     # --- Training with timing ---
     print(
@@ -139,6 +157,12 @@ def train_and_evaluate(
         done = start_epoch + n
         print(f"Epoch {done}/{epochs} | {dt:.2f}s | train_acc {train_acc*100:.2f}% | test_acc {test_acc*100:.2f}%")
 
+        if start_epoch == 1:
+            # After tm is created (and after graphs_train is built)
+            X_clause, class_sum = tm.transform(graphs_train)   # shape: (N, clauses)
+            print("transform nonzero fraction:", (X_clause != 0).mean())
+            print("transform abs mean:", np.abs(X_clause).mean())
+            print("class_sum sample:", class_sum[:5])
 
     total = time.time() - start
     print(f"Training time total: {total/60:.2f} minutes")

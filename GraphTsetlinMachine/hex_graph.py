@@ -253,5 +253,14 @@ def boards_to_graphs(
                     if c == board_dim - 1:
                         graphs.add_graph_node_edge(g, u_name, "P1_RIGHT", P1_GOAL_EDGE)
 
+    # after adding all edges:
+    for g in [0, n_graphs-1]:
+        for name in ["117", "118", "119", "120"]:
+            nid = graphs.graph_node_id[g][name]
+            abs_id = graphs.node_index[g] + nid
+            print(g, name,
+                "expected", graphs.number_of_graph_node_edges[abs_id],
+                "added", graphs.graph_node_edge_counter[abs_id])
+
     graphs.encode()
     return graphs
