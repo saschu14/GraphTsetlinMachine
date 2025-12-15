@@ -132,6 +132,10 @@ def train_and_evaluate(
     print("w0 unique:", np.unique(w0, return_counts=True))
     print("w1 unique:", np.unique(w1, return_counts=True))
 
+    graphs_train.print_graph_nodes(0)
+    # and optionally edges
+    graphs_train.print_graph_edges(0)
+
     # --- Training with timing ---
     print(
         f"Training GTM: clauses={clauses}, T={T}, s={s}, depth={depth}, "
