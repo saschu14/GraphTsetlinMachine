@@ -139,10 +139,15 @@ def train_and_evaluate(
             msg = f"Epoch {e+1}/{epochs} | {dt:.2f}s | avg {avg:.2f}s | ETA ~ {remaining/60:.1f} min"
 
             if eval_every and ((e + 1) % eval_every == 0):
-                # Optional: evaluation is expensive, so do it periodically
+                # Test accuracy
                 y_pred_test = tm.predict(graphs_test)
                 test_acc = (y_pred_test == y_test).mean()
-                msg += f" | test_acc {test_acc*100:.2f}%"
+
+                # ✅ Train accuracy (add this)
+                y_pred_train = tm.predict(graphs_train)
+                train_acc = (y_pred_train == y_train).mean()
+
+                msg += f" | train_acc {train_acc*100:.2f}% | test_acc {test_acc*100:.2f}%"
 
             print(msg)
 
