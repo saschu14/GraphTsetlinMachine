@@ -30,6 +30,7 @@ def load_hex_dataset_npz(path: str, snap: int | None = None, limit: int | None =
             mask = (moves_left == snap)
             
         else:
+            moves_left = data["moves_left"].astype(np.int32)
             mask = (moves_left == snap)
         
         boards = boards[mask]
