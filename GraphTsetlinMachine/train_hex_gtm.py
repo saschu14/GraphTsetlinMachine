@@ -5,8 +5,7 @@ import numpy as np
 from GraphTsetlinMachine.tm import MultiClassGraphTsetlinMachine
 from GraphTsetlinMachine.hex_graph import boards_to_graphs
 
-BOARD_DIM = 11
-
+BOARD_DIM = None
 
 def load_hex_dataset_npz(path: str, only_completed: bool = True, limit: int | None = None):
     """
@@ -18,6 +17,8 @@ def load_hex_dataset_npz(path: str, only_completed: bool = True, limit: int | No
     data = np.load(path)
     boards = data["boards"]
     labels = data["labels"].astype(np.uint32)
+    global BOARD_DIM
+    BOARD_DIM = boards.shape[1]
 
     if only_completed:
         if "moves_left" not in data:
