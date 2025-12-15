@@ -11,7 +11,7 @@ _HEX_DIRECTIONS = [
     (1, -1),
     (1, 0),
 ]
-
+_DIR_NAMES = ["Up", "UpRight", "Left", "Right", "DownLeft", "Down"]
 
 def build_hex_adjacency(board_dim: int):
     """
@@ -29,12 +29,11 @@ def build_hex_adjacency(board_dim: int):
     for r in range(board_dim):
         for c in range(board_dim):
             u = idx(r, c)
-            for dr, dc in _HEX_DIRECTIONS:
+            for k, (dr, dc) in enumerate(_HEX_DIRECTIONS):
                 rr, cc = r + dr, c + dc
                 if 0 <= rr < board_dim and 0 <= cc < board_dim:
                     v = idx(rr, cc)
-                    adj[u].append(v)
-
+                    adj[u].append((v, _DIR_NAMES[k]))
     return adj
 
 
@@ -129,12 +128,12 @@ def boards_to_graphs(
     graphs.prepare_edge_configuration()
     for g in range(n_graphs):
         for u in range(num_nodes):
-            for v in adjacency[u]:
+            for v, dir_name in adjacency[u]:
                 graphs.add_graph_node_edge(
                     graph_id=g,
                     source_node_name=str(u),
                     destination_node_name=str(v),
-                    edge_type_name="Adjacent",
+                    edge_type_name=dir_name,
                 )
 
     # --- Node properties: occupancy + (row, col) ---

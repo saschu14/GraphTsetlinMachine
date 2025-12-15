@@ -80,6 +80,8 @@ def train_and_evaluate(
         boards_test,
         board_dim=BOARD_DIM,
         base_graphs=graphs_train,
+        hypervector_size=hypervector_size,
+        hypervector_bits=hypervector_bits,
     )
 
     # --- Initialize GTM ---
