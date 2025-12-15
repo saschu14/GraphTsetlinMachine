@@ -2,34 +2,37 @@ import argparse
 import time
 import numpy as np
 
-from GraphTsetlinMachine.tm import MultiClassGraphTsetlinMachine  # or GraphTsetlinMachine for strict binary
+from GraphTsetlinMachine.tm import MultiClassGraphTsetlinMachine
 from GraphTsetlinMachine.hex_graph import boards_to_graphs
 
 BOARD_DIM = 11
 
 
-def load_hex_dataset_npz(path: str):
+def load_hex_dataset_npz(path: str, only_completed: bool = True, limit: int | None = None):
     """
     Expected .npz format:
         boards: (N, 11, 11) with values {0,1,2}
-        labels: (N,) with values {0,1}  (winner player index)
+        labels: (N,) with values {0,1}
+        moves_left: (N,) with values like {0,2,5}
     """
     data = np.load(path)
     boards = data["boards"]
     labels = data["labels"].astype(np.uint32)
-    moves_left = data["moves_left"].astype(np.int32)
 
-    mask = (moves_left == 0)   # only completed positions
-    boards = boards[mask]
-    labels = labels[mask]
+    if only_completed:
+        if "moves_left" not in data:
+            raise ValueError("Dataset missing 'moves_left' array but only_completed=True.")
+        moves_left = data["moves_left"].astype(np.int32)
+        mask = (moves_left == 0)
+        boards = boards[mask]
+        labels = labels[mask]
 
-    boards = boards[:400]
-    labels = labels[:400]
+    if limit is not None:
+        boards = boards[:limit]
+        labels = labels[:limit]
 
     if boards.ndim != 3 or boards.shape[1] != BOARD_DIM or boards.shape[2] != BOARD_DIM:
-        raise ValueError(
-            f"Expected 'boards' with shape (N,{BOARD_DIM},{BOARD_DIM}), got {boards.shape}"
-        )
+        raise ValueError(f"Expected 'boards' with shape (N,{BOARD_DIM},{BOARD_DIM}), got {boards.shape}")
 
     if labels.ndim != 1:
         raise ValueError(f"Expected 'labels' with shape (N,), got {labels.shape}")
@@ -50,12 +53,16 @@ def train_and_evaluate(
     hypervector_bits: int = 2,
     seed: int = 1,
     log_every: int = 1,
-    eval_every: int = 0,  # set to e.g. 10 to evaluate every 10 epochs (costs time)
+    eval_every: int = 0,
+    balance_train: bool = True,
+    only_completed: bool = True,
+    limit_samples: int | None = None,
 ):
     # --- Load dataset ---
-    boards, labels = load_hex_dataset_npz(dataset_path)
+    boards, labels = load_hex_dataset_npz(dataset_path, only_completed=only_completed, limit=limit_samples)
     n_samples = boards.shape[0]
-    counts = np.bincount(labels.astype(np.int64))
+
+    counts = np.bincount(labels.astype(np.int64), minlength=2)
     print("Label counts:", counts, "majority baseline:", counts.max() / counts.sum())
 
     rng = np.random.RandomState(seed)
@@ -67,18 +74,20 @@ def train_and_evaluate(
     boards_train, boards_test = boards[:split], boards[split:]
     y_train, y_test = labels[:split], labels[split:]
 
-    # Balance training set to avoid majority/minority collapse
-    idx0 = np.where(y_train == 0)[0]
-    idx1 = np.where(y_train == 1)[0]
-    m = min(len(idx0), len(idx1))
-    rng = np.random.RandomState(seed)
-    keep = np.concatenate([rng.choice(idx0, m, replace=False), rng.choice(idx1, m, replace=False)])
-    rng.shuffle(keep)
+    # Optional: balance training set (helps avoid single-class collapse)
+    if balance_train:
+        idx0 = np.where(y_train == 0)[0]
+        idx1 = np.where(y_train == 1)[0]
+        m = min(len(idx0), len(idx1))
+        keep = np.concatenate([
+            rng.choice(idx0, m, replace=False),
+            rng.choice(idx1, m, replace=False),
+        ])
+        rng.shuffle(keep)
+        boards_train = boards_train[keep]
+        y_train = y_train[keep]
+        print("Balanced train counts:", np.bincount(y_train.astype(np.int64), minlength=2))
 
-    boards_train = boards_train[keep]
-    y_train = y_train[keep]
-
-    print("Balanced train counts:", np.bincount(y_train.astype(np.int64)))
     print(f"Loaded {n_samples} positions.")
     print(f"Train: {boards_train.shape[0]}, Test: {boards_test.shape[0]}")
 
@@ -113,65 +122,50 @@ def train_and_evaluate(
         double_hashing=False,
         one_hot_encoding=False,
     )
-    # After tm is created (and after graphs_train is built)
-    X_clause, class_sum = tm.transform(graphs_train)   # shape: (N, clauses)
-    print("transform nonzero fraction:", (X_clause != 0).mean())
-    print("transform abs mean:", np.abs(X_clause).mean())
-    print("class_sum sample:", class_sum[:5])
 
-    # --- Verify that training changes weights ---
-    state0 = tm.get_state()
-    w0 = state0[1].copy()
-
-    tm.fit(graphs_train, y_train, epochs=1)
-
-    state1 = tm.get_state()
-    w1 = state1[1].copy()
-
-    print("weights changed:", np.any(w0 != w1))
-    print("w0 unique:", np.unique(w0, return_counts=True))
-    print("w1 unique:", np.unique(w1, return_counts=True))
-
-    graphs_train.print_graph_nodes(0)
-    # and optionally edges
-    graphs_train.print_graph_edges(0)
-
-    # --- Training with timing ---
     print(
         f"Training GTM: clauses={clauses}, T={T}, s={s}, depth={depth}, "
         f"epochs={epochs}, message_size={message_size}"
     )
 
     start = time.time()
+
+    # Train in chunks (avoids the problematic pattern fit(..., epochs=1) in a tight loop)
+    chunk = eval_every if (eval_every and eval_every > 0) else log_every
+    chunk = chunk if (chunk and chunk > 0) else 1
+
+    done = 0
     epoch_times = []
 
-    for start_epoch in range(0, epochs, eval_every):
-        n = min(eval_every, epochs - start_epoch)
+    while done < epochs:
+        n = min(chunk, epochs - done)
 
         t0 = time.time()
         tm.fit(graphs_train, y_train, epochs=n)
         dt = time.time() - t0
+        epoch_times.append(dt)
 
-        y_pred_train = tm.predict(graphs_train)
-        train_acc = (y_pred_train == y_train).mean()
+        done += n
 
-        y_pred_test = tm.predict(graphs_test)
-        test_acc = (y_pred_test == y_test).mean()
+        # logging
+        if log_every and log_every > 0:
+            avg = sum(epoch_times) / len(epoch_times)
+            remaining = avg * ((epochs - done) / max(n, 1))
+            msg = f"Epoch {done}/{epochs} | {dt:.2f}s | avg_chunk {avg:.2f}s | ETA ~ {remaining/60:.1f} min"
 
-        done = start_epoch + n
-        print(f"Epoch {done}/{epochs} | {dt:.2f}s | train_acc {train_acc*100:.2f}% | test_acc {test_acc*100:.2f}%")
+            if eval_every and eval_every > 0:
+                y_pred_train = tm.predict(graphs_train)
+                y_pred_test = tm.predict(graphs_test)
+                train_acc = (y_pred_train == y_train).mean()
+                test_acc = (y_pred_test == y_test).mean()
+                msg += f" | train_acc {train_acc*100:.2f}% | test_acc {test_acc*100:.2f}%"
 
-        if start_epoch == 1:
-            # After tm is created (and after graphs_train is built)
-            X_clause, class_sum = tm.transform(graphs_train)   # shape: (N, clauses)
-            print("transform nonzero fraction:", (X_clause != 0).mean())
-            print("transform abs mean:", np.abs(X_clause).mean())
-            print("class_sum sample:", class_sum[:5])
+            print(msg)
 
     total = time.time() - start
     print(f"Training time total: {total/60:.2f} minutes")
 
-    # --- Final Evaluation ---
+    # Final evaluation
     print("Evaluating...")
     y_pred_train = tm.predict(graphs_train)
     y_pred_test = tm.predict(graphs_test)
@@ -179,20 +173,15 @@ def train_and_evaluate(
     train_acc = (y_pred_train == y_train).mean()
     test_acc = (y_pred_test == y_test).mean()
 
-    print(f"Train accuracy: {train_acc * 100:.2f}%")
-    print(f"Test accuracy:  {test_acc * 100:.2f}%")
-    pred_counts = np.bincount(y_pred_test.astype(np.int64), minlength=counts.shape[0])
+    print(f"Train accuracy: {train_acc*100:.2f}%")
+    print(f"Test accuracy:  {test_acc*100:.2f}%")
+    pred_counts = np.bincount(y_pred_test.astype(np.int64), minlength=2)
     print("Pred counts (test):", pred_counts)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Train Graph Tsetlin Machine on Hex positions.")
-    parser.add_argument(
-        "--data",
-        type=str,
-        required=True,
-        help="Path to .npz dataset file containing 'boards' and 'labels'.",
-    )
+    parser.add_argument("--data", type=str, required=True, help="Path to .npz dataset file.")
     parser.add_argument("--clauses", type=int, default=4000)
     parser.add_argument("--T", type=float, default=20.0)
     parser.add_argument("--s", type=float, default=10.0)
@@ -204,9 +193,12 @@ def main():
     parser.add_argument("--hypervector-bits", type=int, default=2)
     parser.add_argument("--seed", type=int, default=1)
 
-    # new flags
-    parser.add_argument("--log-every", type=int, default=1, help="Print timing every N epochs (default: 1)")
-    parser.add_argument("--eval-every", type=int, default=0, help="Evaluate test accuracy every N epochs (0=off)")
+    parser.add_argument("--log-every", type=int, default=1, help="Print timing every N chunks (default: 1)")
+    parser.add_argument("--eval-every", type=int, default=5, help="Evaluate accuracy every N epochs (0=off)")
+
+    parser.add_argument("--no-balance", action="store_true", help="Disable balancing of training set")
+    parser.add_argument("--all-snaps", action="store_true", help="Use all positions (moves_left 0/2/5), not only completed")
+    parser.add_argument("--limit", type=int, default=None, help="Limit number of samples (debug/overfit test)")
 
     args = parser.parse_args()
 
@@ -224,6 +216,9 @@ def main():
         seed=args.seed,
         log_every=args.log_every,
         eval_every=args.eval_every,
+        balance_train=(not args.no_balance),
+        only_completed=(not args.all_snaps),
+        limit_samples=args.limit,
     )
 
 
