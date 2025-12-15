@@ -160,6 +160,11 @@ def train_and_evaluate(
                 test_acc = (y_pred_test == y_test).mean()
                 msg += f" | train_acc {train_acc*100:.2f}% | test_acc {test_acc*100:.2f}%"
 
+                # Detailed prediction counts
+                pred_counts_train = np.bincount(y_pred_train.astype(np.int64), minlength=2)
+                pred_counts_test  = np.bincount(y_pred_test.astype(np.int64), minlength=2)
+                msg += f" | pred_train {pred_counts_train.tolist()} | pred_test {pred_counts_test.tolist()}"
+
             print(msg)
 
     total = time.time() - start
