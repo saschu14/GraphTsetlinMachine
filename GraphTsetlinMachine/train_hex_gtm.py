@@ -8,7 +8,7 @@ from GraphTsetlinMachine.hex_graph import boards_to_graphs
 
 BOARD_DIM = None
 
-def load_hex_dataset_npz(path: str, only_completed: bool = True, limit: int | None = None):
+def load_hex_dataset_npz(path: str, snap: int | None = None, limit: int | None = None):
     """
     Expected .npz format:
         boards: (N, 11, 11) with values {0,1,2}
@@ -18,14 +18,20 @@ def load_hex_dataset_npz(path: str, only_completed: bool = True, limit: int | No
     data = np.load(path)
     boards = data["boards"]
     labels = data["labels"].astype(np.uint32)
+
     global BOARD_DIM
     BOARD_DIM = boards.shape[1]
 
-    if only_completed:
-        if "moves_left" not in data:
-            raise ValueError("Dataset missing 'moves_left' array but only_completed=True.")
-        moves_left = data["moves_left"].astype(np.int32)
-        mask = (moves_left == 0)
+    if snap is not None and snap in [0, 2, 5]:
+        if snap == 0:
+            if "moves_left" not in data:
+                raise ValueError("Dataset missing 'moves_left' array but only_completed=True.")
+            moves_left = data["moves_left"].astype(np.int32)
+            mask = (moves_left == snap)
+            
+        else:
+            mask = (moves_left == snap)
+        
         boards = boards[mask]
         labels = labels[mask]
 
@@ -57,11 +63,11 @@ def train_and_evaluate(
     log_every: int = 1,
     eval_every: int = 0,
     balance_train: bool = True,
-    only_completed: bool = True,
+    snap: int | None = None,
     limit_samples: int | None = None,
 ):
     # --- Load dataset ---
-    boards, labels = load_hex_dataset_npz(dataset_path, only_completed=only_completed, limit=limit_samples)
+    boards, labels = load_hex_dataset_npz(dataset_path, snap=snap, limit=limit_samples)
     n_samples = boards.shape[0]
 
     counts = np.bincount(labels.astype(np.int64), minlength=2)
@@ -144,7 +150,7 @@ def train_and_evaluate(
     best_test = -1.0
     best_epoch = -1
     best_state = None
-    patience = 12          # number of evals with no improvement
+    patience = 8          # number of evals with no improvement
     bad = 0
     
     w_before = None
@@ -259,7 +265,8 @@ def main():
     parser.add_argument("--eval-every", type=int, default=5, help="Evaluate accuracy every N epochs (0=off)")
 
     parser.add_argument("--no-balance", action="store_true", help="Disable balancing of training set")
-    parser.add_argument("--all-snaps", action="store_true", help="Use all positions (moves_left 0/2/5), not only completed")
+    #parser.add_argument("--all-snaps", action="store_true", help="Use all positions (moves_left 0/2/5), not only completed")
+    parser.add_argument("--snap", type=int, default=None, help="Number of moves left (0, 2, or 5)")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of samples (debug/overfit test)")
 
     args = parser.parse_args()
@@ -279,7 +286,8 @@ def main():
         log_every=args.log_every,
         eval_every=args.eval_every,
         balance_train=(not args.no_balance),
-        only_completed=(not args.all_snaps),
+        snap=args.snap,
+        #only_completed=(not args.all_snaps),
         limit_samples=args.limit,
     )
 
