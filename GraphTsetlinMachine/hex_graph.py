@@ -1,95 +1,42 @@
 import numpy as np
 from GraphTsetlinMachine.graphs import Graphs
 
-# Directions for Hex neighbors (axial-ish on 2D grid):
-# Up, Up-Right, Left, Right, Down-Left, Down
+# 6 Hex directions
 _HEX_DIRECTIONS = [
-    (-1, 0),
-    (-1, 1),
-    (0, -1),
-    (0, 1),
-    (1, -1),
-    (1, 0),
+    (-1, 0),   # Up
+    (-1, 1),   # Up-right
+    (0, -1),   # Left
+    (0, 1),    # Right
+    (1, -1),   # Down-left
+    (1, 0),    # Down
 ]
-_DIR_NAMES = ["Up", "UpRight", "Left", "Right", "DownLeft", "Down"]
 
-def build_hex_adjacency(board_dim: int):
-    """
-    Build adjacency list for a board_dim x board_dim Hex board.
-
-    Nodes are indexed linearly:
-        node_id = r * board_dim + c
-    """
-    num_nodes = board_dim * board_dim
-    adj = [[] for _ in range(num_nodes)]
-
-    def idx(r, c):
-        return r * board_dim + c
-
-    for r in range(board_dim):
-        for c in range(board_dim):
-            u = idx(r, c)
-            for k, (dr, dc) in enumerate(_HEX_DIRECTIONS):
-                rr, cc = r + dr, c + dc
-                if 0 <= rr < board_dim and 0 <= cc < board_dim:
-                    v = idx(rr, cc)
-                    adj[u].append((v, _DIR_NAMES[k]))
-    return adj
-
-
-def make_symbols(board_dim: int):
-    """
-    Define the symbol vocabulary for node properties.
-
-    - Occupancy: Empty / Player0 / Player1
-    - Position: Row0..Row10, Col0..Col10 (for 11x11)
-    """
-    symbols = ["Empty", "Player0", "Player1"]
-    symbols += [f"Row{r}" for r in range(board_dim)]
-    symbols += [f"Col{c}" for c in range(board_dim)]
-    return symbols
+_DIR_NAMES = ["D0", "D1", "D2", "D3", "D4", "D5"]
 
 
 def boards_to_graphs(
     boards: np.ndarray,
     board_dim: int,
     base_graphs: Graphs | None = None,
-    hypervector_size: int = 128,
-    hypervector_bits: int = 2,
+    hypervector_size: int = 1024,
+    hypervector_bits: int = 8,
 ) -> Graphs:
     """
-    Convert a batch of Hex boards into a Graphs object.
-
-    Parameters
-    ----------
-    boards : np.ndarray
-        Array of shape (num_positions, board_dim, board_dim)
-        Values:
-            0 = empty
-            1 = player 0
-            2 = player 1
-    board_dim : int
-        Board dimension, e.g., 11 for an 11x11 board.
-    base_graphs : Graphs or None
-        If None: create a new Graphs object and generate symbol hypervectors.
-        If given: create a Graphs object initialized with the same symbols and
-                  hypervectors as base_graphs (used for test set).
-    hypervector_size : int
-        Length of hypervectors used to represent symbols.
-    hypervector_bits : int
-        Number of active bits per symbol hypervector.
-
-    Returns
-    -------
-    graphs : Graphs
-        Populated Graphs instance ready for GTM training/inference.
+    Convert Hex boards to GraphTsetlinMachine Graphs with:
+      - 6 directional edge types
+      - 4 goal nodes (P0_TOP, P0_BOTTOM, P1_LEFT, P1_RIGHT)
     """
+
     boards = np.asarray(boards)
-    assert boards.ndim == 3, "Expected boards with shape (N, board_dim, board_dim)"
     n_graphs = boards.shape[0]
 
+    # ----- Symbol vocabulary -----
     if base_graphs is None:
-        symbols = make_symbols(board_dim)
+        symbols = ["Empty", "Player0", "Player1"]
+        symbols += [f"Row{r}" for r in range(board_dim)]
+        symbols += [f"Col{c}" for c in range(board_dim)]
+        symbols += ["P0_TOP", "P0_BOTTOM", "P1_LEFT", "P1_RIGHT"]
+
         graphs = Graphs(
             number_of_graphs=n_graphs,
             symbols=symbols,
@@ -97,73 +44,91 @@ def boards_to_graphs(
             hypervector_bits=hypervector_bits,
         )
     else:
-        # Reuse symbol IDs and hypervectors from base_graphs
-        graphs = Graphs(
-            number_of_graphs=n_graphs,
-            init_with=base_graphs,
-        )
+        graphs = Graphs(number_of_graphs=n_graphs, init_with=base_graphs)
 
-    # --- Node counts and basic structure ---
-    num_nodes = board_dim * board_dim
+    # ----- Node counts -----
+    num_board_nodes = board_dim * board_dim
+    goal_nodes = ["P0_TOP", "P0_BOTTOM", "P1_LEFT", "P1_RIGHT"]
+    num_nodes = num_board_nodes + len(goal_nodes)
+
     for g in range(n_graphs):
         graphs.set_number_of_graph_nodes(g, num_nodes)
 
     graphs.prepare_node_configuration()
 
-    # Precompute adjacency (same for all graphs)
-    adjacency = build_hex_adjacency(board_dim)
-
-    # Add nodes
+    # ----- Add nodes -----
     for g in range(n_graphs):
-        for node in range(num_nodes):
-            degree = len(adjacency[node])
+        # Board cells
+        for node in range(num_board_nodes):
             graphs.add_graph_node(
                 graph_id=g,
                 node_name=str(node),
-                number_of_graph_node_edges=degree,
+                number_of_graph_node_edges=6,
                 node_type_name="Cell",
             )
 
-    # Add edges
+        # Goal nodes
+        for goal in goal_nodes:
+            graphs.add_graph_node(
+                graph_id=g,
+                node_name=goal,
+                number_of_graph_node_edges=board_dim,
+                node_type_name="Goal",
+            )
+
+    # ----- Add edges -----
     graphs.prepare_edge_configuration()
-    for g in range(n_graphs):
-        for u in range(num_nodes):
-            for v, dir_name in adjacency[u]:
-                graphs.add_graph_node_edge(
-                    graph_id=g,
-                    source_node_name=str(u),
-                    destination_node_name=str(v),
-                    edge_type_name=dir_name,
-                )
 
-    # --- Node properties: occupancy + (row, col) ---
-    for g in range(n_graphs):
-        board = boards[g]
-        if board.shape != (board_dim, board_dim):
-            raise ValueError(f"Board has wrong shape {board.shape}, expected {(board_dim, board_dim)}")
+    def idx(r, c):
+        return r * board_dim + c
 
+    for g in range(n_graphs):
         for r in range(board_dim):
             for c in range(board_dim):
-                node_id = r * board_dim + c
-                node_name = str(node_id)
+                u = idx(r, c)
 
-                value = int(board[r, c])
+                # Neighbor edges (directional)
+                for d, (dr, dc) in enumerate(_HEX_DIRECTIONS):
+                    rr, cc = r + dr, c + dc
+                    if 0 <= rr < board_dim and 0 <= cc < board_dim:
+                        v = idx(rr, cc)
+                        graphs.add_graph_node_edge(
+                            graph_id=g,
+                            source_node_name=str(u),
+                            destination_node_name=str(v),
+                            edge_type_name=_DIR_NAMES[d],
+                        )
 
-                if value == 0:
-                    occ_symbol = "Empty"
-                elif value == 1:
-                    occ_symbol = "Player0"
-                elif value == 2:
-                    occ_symbol = "Player1"
+                # Goal connections
+                if r == 0:
+                    graphs.add_graph_node_edge(g, str(u), "P0_TOP", "P0_GOAL")
+                if r == board_dim - 1:
+                    graphs.add_graph_node_edge(g, str(u), "P0_BOTTOM", "P0_GOAL")
+                if c == 0:
+                    graphs.add_graph_node_edge(g, str(u), "P1_LEFT", "P1_GOAL")
+                if c == board_dim - 1:
+                    graphs.add_graph_node_edge(g, str(u), "P1_RIGHT", "P1_GOAL")
+
+    # ----- Node properties -----
+    for g in range(n_graphs):
+        board = boards[g]
+        for r in range(board_dim):
+            for c in range(board_dim):
+                node = str(idx(r, c))
+                v = board[r, c]
+
+                if v == 0:
+                    occ = "Empty"
+                elif v == 1:
+                    occ = "Player0"
+                elif v == 2:
+                    occ = "Player1"
                 else:
-                    raise ValueError(f"Unexpected board value {value} at ({r}, {c})")
+                    raise ValueError("Invalid board value")
 
-                # Occupancy
-                graphs.add_graph_node_property(g, node_name, occ_symbol)
-                # Position
-                graphs.add_graph_node_property(g, node_name, f"Row{r}")
-                graphs.add_graph_node_property(g, node_name, f"Col{c}")
+                graphs.add_graph_node_property(g, node, occ)
+                graphs.add_graph_node_property(g, node, f"Row{r}")
+                graphs.add_graph_node_property(g, node, f"Col{c}")
 
-    # Final consistency check + signature
     graphs.encode()
     return graphs
