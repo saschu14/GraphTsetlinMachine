@@ -137,6 +137,8 @@ def train_and_evaluate(
     done = 0
     epoch_times = []
 
+    w_before = None
+
     while done < epochs:
         n = min(chunk, epochs - done)
 
@@ -144,6 +146,12 @@ def train_and_evaluate(
         tm.fit(graphs_train, y_train, epochs=n)
         dt = time.time() - t0
         epoch_times.append(dt)
+
+        if done == n:  # after first chunk
+            w_before = tm.get_state()[1].copy()
+        elif done == 2*n:  # after second chunk
+            w_after = tm.get_state()[1].copy()
+            print("weights changed after 2 chunks:", np.any(w_before != w_after))
 
         done += n
 
