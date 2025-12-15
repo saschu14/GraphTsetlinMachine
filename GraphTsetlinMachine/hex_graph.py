@@ -253,9 +253,10 @@ def boards_to_graphs(
                     if c == board_dim - 1:
                         graphs.add_graph_node_edge(g, u_name, "P1_RIGHT", P1_GOAL_EDGE)
 
-    # after adding all edges:
-    for g in [0, n_graphs-1]:
-        for name in ["117", "118", "119", "120"]:
+    # Optional debug: check a few valid node ids near the end of the board
+    debug_nodes = [str(num_board_nodes - k) for k in (1, 2, 3, 4) if num_board_nodes - k >= 0]
+    for g in [0, n_graphs - 1]:
+        for name in debug_nodes:
             nid = graphs.graph_node_id[g][name]
             abs_id = graphs.node_index[g] + nid
             print(g, name,
