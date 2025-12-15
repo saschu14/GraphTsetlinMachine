@@ -1,6 +1,7 @@
 import argparse
 import time
 import numpy as np
+import copy
 
 from GraphTsetlinMachine.tm import MultiClassGraphTsetlinMachine
 from GraphTsetlinMachine.hex_graph import boards_to_graphs
@@ -175,8 +176,14 @@ def train_and_evaluate(
                 if test_acc > best_test + 1e-6:
                     best_test = test_acc
                     best_epoch = done
-                    best_state = tm.get_state()
+                    best_state = copy.deepcopy(tm.get_state())
                     bad = 0
+                    
+                    #sanity check: saved/restored model gives same accuracy
+                    tm.set_state(best_state)
+                    y_tmp = tm.predict(graphs_test)
+                    tmp_acc = (y_tmp == y_test).mean()
+                    print(f"[check] saved/restored acc: {tmp_acc*100:.2f}% (expected {best_test*100:.2f}%)")
                 else:
                     bad += 1
 
