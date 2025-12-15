@@ -23,6 +23,9 @@ def load_hex_dataset_npz(path: str):
     boards = boards[mask]
     labels = labels[mask]
 
+    boards = boards[:400]
+    labels = labels[:400]
+
     if boards.ndim != 3 or boards.shape[1] != BOARD_DIM or boards.shape[2] != BOARD_DIM:
         raise ValueError(
             f"Expected 'boards' with shape (N,{BOARD_DIM},{BOARD_DIM}), got {boards.shape}"
