@@ -137,6 +137,8 @@ def train_and_evaluate(
 
     done = 0
     epoch_times = []
+    best_test = -1
+    best_epoch = -1
 
     w_before = None
 
@@ -167,6 +169,9 @@ def train_and_evaluate(
                 y_pred_test = tm.predict(graphs_test)
                 train_acc = (y_pred_train == y_train).mean()
                 test_acc = (y_pred_test == y_test).mean()
+                if test_acc > best_test:
+                    best_test = test_acc
+                    best_epoch = done
                 msg += f" | train_acc {train_acc*100:.2f}% | test_acc {test_acc*100:.2f}%"
 
                 # Detailed prediction counts
@@ -191,7 +196,7 @@ def train_and_evaluate(
     print(f"Test accuracy:  {test_acc*100:.2f}%")
     pred_counts = np.bincount(y_pred_test.astype(np.int64), minlength=2)
     print("Pred counts (test):", pred_counts)
-
+    print(f"... | best_test {best_test*100:.2f}% @ {best_epoch}")
 
 def main():
     parser = argparse.ArgumentParser(description="Train Graph Tsetlin Machine on Hex positions.")
