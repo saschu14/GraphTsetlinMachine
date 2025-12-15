@@ -75,6 +75,9 @@ def train_and_evaluate(
     split = int(0.8 * n_samples)
     boards_train, boards_test = boards[:split], boards[split:]
     y_train, y_test = labels[:split], labels[split:]
+    print("graphs_test n:", graphs_test.number_of_graphs)
+    print("y_test n:", len(y_test))
+    print("Test fingerprint:", int(np.sum(y_test[:200]) + 1000*np.mean(y_test) + 100000*len(y_test)))
 
     # Optional: balance training set (helps avoid single-class collapse)
     if balance_train:
@@ -210,6 +213,10 @@ def train_and_evaluate(
     print(f"Training time total: {total/60:.2f} minutes")
 
     # Final evaluation
+    print("graphs_test n:", graphs_test.number_of_graphs)
+    print("y_test n:", len(y_test))
+    print("Test fingerprint:", int(np.sum(y_test[:200]) + 1000*np.mean(y_test) + 100000*len(y_test)))
+
     print("Evaluating...")
     y_pred_train = tm.predict(graphs_train)
     y_pred_test = tm.predict(graphs_test)
