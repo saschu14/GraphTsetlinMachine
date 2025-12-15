@@ -32,6 +32,113 @@ def _bfs_reach(board: np.ndarray, player_val: int, starts: list[tuple[int, int]]
 
     return reach
 
+class _DSU:
+    def __init__(self, n: int):
+        self.p = list(range(n))
+        self.r = [0] * n
+
+    def find(self, x: int) -> int:
+        while self.p[x] != x:
+            self.p[x] = self.p[self.p[x]]
+            x = self.p[x]
+        return x
+
+    def union(self, a: int, b: int) -> int:
+        ra, rb = self.find(a), self.find(b)
+        if ra == rb:
+            return ra
+        if self.r[ra] < self.r[rb]:
+            ra, rb = rb, ra
+        self.p[rb] = ra
+        if self.r[ra] == self.r[rb]:
+            self.r[ra] += 1
+        return ra
+
+
+def _winning_moves_one(board: np.ndarray, player_val: int) -> np.ndarray:
+    """
+    Returns winmask[r,c]=True for EMPTY cells that are immediate winning moves for player_val.
+    board values: 0 empty, 1 P0, 2 P1
+    P0 aims top-bottom, P1 aims left-right.
+    """
+    n = board.shape[0]
+    N = n * n
+
+    dsu = _DSU(N)
+
+    # Union adjacent stones of this player
+    for r in range(n):
+        for c in range(n):
+            if int(board[r, c]) != player_val:
+                continue
+            u = r * n + c
+            for dr, dc in _HEX_DIRS:  # uses your existing hex dirs
+                rr, cc = r + dr, c + dc
+                if 0 <= rr < n and 0 <= cc < n and int(board[rr, cc]) == player_val:
+                    v = rr * n + cc
+                    dsu.union(u, v)
+
+    # Track border-touch per component root
+    touch_a = np.zeros(N, dtype=bool)  # top (P0) or left (P1)
+    touch_b = np.zeros(N, dtype=bool)  # bottom (P0) or right (P1)
+
+    for r in range(n):
+        for c in range(n):
+            if int(board[r, c]) != player_val:
+                continue
+            root = dsu.find(r * n + c)
+
+            if player_val == 1:
+                if r == 0:
+                    touch_a[root] = True
+                if r == n - 1:
+                    touch_b[root] = True
+            else:  # player_val == 2
+                if c == 0:
+                    touch_a[root] = True
+                if c == n - 1:
+                    touch_b[root] = True
+
+    # Evaluate each empty cell: if placing here connects border A and B, it's a WIN1 move
+    win = np.zeros((n, n), dtype=bool)
+
+    for r in range(n):
+        for c in range(n):
+            if int(board[r, c]) != 0:
+                continue
+
+            neigh_roots = set()
+            for dr, dc in _HEX_DIRS:
+                rr, cc = r + dr, c + dc
+                if 0 <= rr < n and 0 <= cc < n and int(board[rr, cc]) == player_val:
+                    neigh_roots.add(dsu.find(rr * n + cc))
+
+            # Borders touched if we place at (r,c):
+            a = False
+            b = False
+
+            # The placed stone itself may touch a border
+            if player_val == 1:
+                if r == 0:
+                    a = True
+                if r == n - 1:
+                    b = True
+            else:
+                if c == 0:
+                    a = True
+                if c == n - 1:
+                    b = True
+
+            # Neighbor components may touch borders
+            for root in neigh_roots:
+                a = a or touch_a[root]
+                b = b or touch_b[root]
+                if a and b:
+                    win[r, c] = True
+                    break
+
+    return win
+
 
 def boards_to_graphs(
     boards: np.ndarray,
@@ -82,6 +189,9 @@ def boards_to_graphs(
         symbols += [f"Col{c}" for c in range(board_dim)]
         symbols += goal_nodes
         symbols += ["P0_RT", "P0_RB", "P0_BOTH", "P1_RL", "P1_RR", "P1_BOTH"]
+
+        # Winning move properties for 2 moves before game end
+        symbols += ["P0_WIN1", "P1_WIN1"]
 
         graphs = Graphs(
             number_of_graphs=n_graphs,
@@ -186,6 +296,9 @@ def boards_to_graphs(
         p1_rr = _bfs_reach(board, 2, [(r, board_dim - 1) for r in range(board_dim)])
         p1_both = p1_rl & p1_rr
 
+        p0_win1 = _winning_moves_one(board, 1)
+        p1_win1 = _winning_moves_one(board, 2)
+
         for u in range(num_board_nodes):
             r, c = divmod(u, board_dim)
             v = int(board[r, c])
@@ -193,6 +306,14 @@ def boards_to_graphs(
 
             if v == 0:
                 graphs.add_graph_node_property(g, node, "Empty")
+                if v == 0:
+                    # If P0 can win in one move by placing here
+                    if p0_win1[r, c]:
+                        graphs.add_graph_node_property(g, node, "P0_WIN1")
+                        
+                    # If P1 can win in one move by placing here
+                    if p1_win1[r, c]:
+                        graphs.add_graph_node_property(g, node, "P1_WIN1")
             elif v == 1:
                 graphs.add_graph_node_property(g, node, "Player0")
             elif v == 2:
