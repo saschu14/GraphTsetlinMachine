@@ -17,6 +17,11 @@ def load_hex_dataset_npz(path: str):
     data = np.load(path)
     boards = data["boards"]
     labels = data["labels"].astype(np.int32)
+    moves_left = data["moves_left"].astype(np.int32)
+
+    mask = (moves_left == 0)   # only completed positions
+    boards = boards[mask]
+    labels = labels[mask]
 
     if boards.ndim != 3 or boards.shape[1] != BOARD_DIM or boards.shape[2] != BOARD_DIM:
         raise ValueError(
