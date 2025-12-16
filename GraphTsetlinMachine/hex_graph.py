@@ -191,7 +191,7 @@ def boards_to_graphs(
         symbols += ["P0_RT", "P0_RB", "P0_BOTH", "P1_RL", "P1_RR", "P1_BOTH"]
 
         # Winning move properties for 2 moves before game end
-        symbols += ["P0_WIN1", "P1_WIN1"]
+        symbols += ["P0_WIN1", "P1_WIN1", "P0_BLOCK1", "P1_BLOCK1"]
 
         graphs = Graphs(
             number_of_graphs=n_graphs,
@@ -310,10 +310,19 @@ def boards_to_graphs(
                     # If P0 can win in one move by placing here
                     if p0_win1[r, c]:
                         graphs.add_graph_node_property(g, node, "P0_WIN1")
-                        
+
                     # If P1 can win in one move by placing here
                     if p1_win1[r, c]:
                         graphs.add_graph_node_property(g, node, "P1_WIN1")
+                    
+                    # blocking moves (block opponent's immediate win)
+                    if p1_win1[r, c]:
+                        graphs.add_graph_node_property(g, node, "P0_BLOCK1")
+                        
+                    if p0_win1[r, c]:
+                        graphs.add_graph_node_property(g, node, "P1_BLOCK1")
+
+
             elif v == 1:
                 graphs.add_graph_node_property(g, node, "Player0")
             elif v == 2:
