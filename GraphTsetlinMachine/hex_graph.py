@@ -193,6 +193,9 @@ def boards_to_graphs(
         # Winning move properties for 2 moves before game end
         symbols += ["P0_WIN1", "P1_WIN1", "P0_BLOCK1", "P1_BLOCK1"]
 
+        # To-move property (for non-completed games)
+        symbols += ["P0_TO_MOVE", "P1_TO_MOVE"]
+
         graphs = Graphs(
             number_of_graphs=n_graphs,
             symbols=symbols,
@@ -265,9 +268,20 @@ def boards_to_graphs(
                     destination_node_name=dst,
                     edge_type_name=etype,
                 )
+        num_p0 = np.sum(board == 1)
+        num_p1 = np.sum(board == 2)
+
+        if num_p0 == num_p1:
+            turn = "P0_TO_MOVE"
+        else:
+            turn = "P1_TO_MOVE"
 
         # Goal edges (only for stones on relevant borders)
         for u in range(num_board_nodes):
+            # Add to-move property
+            graphs.add_graph_node_property(g, str(u), turn)
+            
+            # Cell position
             r, c = divmod(u, board_dim)
             v = int(board[r, c])
             name = str(u)
@@ -318,7 +332,7 @@ def boards_to_graphs(
                     # blocking moves (block opponent's immediate win)
                     if p1_win1[r, c]:
                         graphs.add_graph_node_property(g, node, "P0_BLOCK1")
-                        
+
                     if p0_win1[r, c]:
                         graphs.add_graph_node_property(g, node, "P1_BLOCK1")
 
