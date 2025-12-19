@@ -291,26 +291,27 @@ def boards_to_graphs(
             else:
                 turn = "P1_TO_MOVE"
 
-            # Goal edges (only for stones on relevant borders)
-            for u in range(num_board_nodes):
+        # Goal edges (only for stones on relevant borders)
+        for u in range(num_board_nodes):
+            if feature_mode == "domain_turn":
                 # Add to-move property
                 graphs.add_graph_node_property(g, str(u), turn)
-                
-                # Cell position
-                r, c = divmod(u, board_dim)
-                v = int(board[r, c])
-                name = str(u)
+            
+            # Cell position
+            r, c = divmod(u, board_dim)
+            v = int(board[r, c])
+            name = str(u)
 
-                if v == 1:
-                    if r == 0:
-                        graphs.add_graph_node_edge(g, name, "P0_TOP", "P0_GOAL")
-                    if r == board_dim - 1:
-                        graphs.add_graph_node_edge(g, name, "P0_BOTTOM", "P0_GOAL")
-                elif v == 2:
-                    if c == 0:
-                        graphs.add_graph_node_edge(g, name, "P1_LEFT", "P1_GOAL")
-                    if c == board_dim - 1:
-                        graphs.add_graph_node_edge(g, name, "P1_RIGHT", "P1_GOAL")
+            if v == 1:
+                if r == 0:
+                    graphs.add_graph_node_edge(g, name, "P0_TOP", "P0_GOAL")
+                if r == board_dim - 1:
+                    graphs.add_graph_node_edge(g, name, "P0_BOTTOM", "P0_GOAL")
+            elif v == 2:
+                if c == 0:
+                    graphs.add_graph_node_edge(g, name, "P1_LEFT", "P1_GOAL")
+                if c == board_dim - 1:
+                    graphs.add_graph_node_edge(g, name, "P1_RIGHT", "P1_GOAL")
 
     # ---- Add properties (incl. reachability) ----
     for g in range(n_graphs):
