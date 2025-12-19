@@ -185,23 +185,27 @@ def boards_to_graphs(
 
     # ---- Symbols (vocabulary) ----
     if base_graphs is None:
+        # Occupancy
         symbols = ["Empty", "Player0", "Player1"]
 
-        if feature_mode != "baseline":
-            symbols += [f"Row{r}" for r in range(board_dim)]
-            symbols += [f"Col{c}" for c in range(board_dim)]
-            symbols += goal_nodes
+        # Row/Col
+        symbols += [f"Row{r}" for r in range(board_dim)]
+        symbols += [f"Col{c}" for c in range(board_dim)]
+        #symbols += goal_nodes
 
+        # Reachability, winning/blocking, turn
+        if feature_mode in ("domain", "domain_turn"):
+            # Reachability info
             symbols += [
                 "P0_RT", "P0_RB", "P0_BOTH",
                 "P1_RL", "P1_RR", "P1_BOTH",
             ]
-
+            # Winning/blocking move info
             symbols += [
                 "P0_WIN1", "P1_WIN1",
                 "P0_BLOCK1", "P1_BLOCK1",
             ]
-
+            # Turn info
             if feature_mode == "domain_turn":
                 symbols += ["P0_TO_MOVE", "P1_TO_MOVE"]
 
@@ -311,18 +315,18 @@ def boards_to_graphs(
     # ---- Add properties (incl. reachability) ----
     for g in range(n_graphs):
         board = boards[g]
+        if feature_mode in ("domain", "domain_turn"):
+            # Reachability masks (deterministic)
+            p0_rt = _bfs_reach(board, 1, [(0, c) for c in range(board_dim)])
+            p0_rb = _bfs_reach(board, 1, [(board_dim - 1, c) for c in range(board_dim)])
+            p0_both = p0_rt & p0_rb
 
-        # Reachability masks (deterministic)
-        p0_rt = _bfs_reach(board, 1, [(0, c) for c in range(board_dim)])
-        p0_rb = _bfs_reach(board, 1, [(board_dim - 1, c) for c in range(board_dim)])
-        p0_both = p0_rt & p0_rb
+            p1_rl = _bfs_reach(board, 2, [(r, 0) for r in range(board_dim)])
+            p1_rr = _bfs_reach(board, 2, [(r, board_dim - 1) for r in range(board_dim)])
+            p1_both = p1_rl & p1_rr
 
-        p1_rl = _bfs_reach(board, 2, [(r, 0) for r in range(board_dim)])
-        p1_rr = _bfs_reach(board, 2, [(r, board_dim - 1) for r in range(board_dim)])
-        p1_both = p1_rl & p1_rr
-
-        p0_win1 = _winning_moves_one(board, 1)
-        p1_win1 = _winning_moves_one(board, 2)
+            p0_win1 = _winning_moves_one(board, 1)
+            p1_win1 = _winning_moves_one(board, 2)
 
         for u in range(num_board_nodes):
             r, c = divmod(u, board_dim)
@@ -331,6 +335,17 @@ def boards_to_graphs(
 
             if v == 0:
                 graphs.add_graph_node_property(g, node, "Empty")
+            elif v == 1:
+                graphs.add_graph_node_property(g, node, "Player0")
+            elif v == 2:
+                graphs.add_graph_node_property(g, node, "Player1")
+            else:
+                raise ValueError(f"Invalid cell value {v} at {(r, c)}")
+
+            graphs.add_graph_node_property(g, node, f"Row{r}")
+            graphs.add_graph_node_property(g, node, f"Col{c}")
+
+            if feature_mode in ("domain", "domain_turn"):
                 if v == 0:
                     # If P0 can win in one move by placing here
                     if p0_win1[r, c]:
@@ -346,34 +361,21 @@ def boards_to_graphs(
 
                     if p0_win1[r, c]:
                         graphs.add_graph_node_property(g, node, "P1_BLOCK1")
+                if v == 1:
+                    if p0_rt[r, c]:
+                        graphs.add_graph_node_property(g, node, "P0_RT")
+                    if p0_rb[r, c]:
+                        graphs.add_graph_node_property(g, node, "P0_RB")
+                    if p0_both[r, c]:
+                        graphs.add_graph_node_property(g, node, "P0_BOTH")
 
-
-            elif v == 1:
-                graphs.add_graph_node_property(g, node, "Player0")
-            elif v == 2:
-                graphs.add_graph_node_property(g, node, "Player1")
-            else:
-                raise ValueError(f"Invalid cell value {v} at {(r, c)}")
-
-            if feature_mode != "baseline":
-                graphs.add_graph_node_property(g, node, f"Row{r}")
-                graphs.add_graph_node_property(g, node, f"Col{c}")
-
-            if v == 1:
-                if p0_rt[r, c]:
-                    graphs.add_graph_node_property(g, node, "P0_RT")
-                if p0_rb[r, c]:
-                    graphs.add_graph_node_property(g, node, "P0_RB")
-                if p0_both[r, c]:
-                    graphs.add_graph_node_property(g, node, "P0_BOTH")
-
-            elif v == 2:
-                if p1_rl[r, c]:
-                    graphs.add_graph_node_property(g, node, "P1_RL")
-                if p1_rr[r, c]:
-                    graphs.add_graph_node_property(g, node, "P1_RR")
-                if p1_both[r, c]:
-                    graphs.add_graph_node_property(g, node, "P1_BOTH")
+                elif v == 2:
+                    if p1_rl[r, c]:
+                        graphs.add_graph_node_property(g, node, "P1_RL")
+                    if p1_rr[r, c]:
+                        graphs.add_graph_node_property(g, node, "P1_RR")
+                    if p1_both[r, c]:
+                        graphs.add_graph_node_property(g, node, "P1_BOTH")
 
     graphs.encode()
     return graphs
