@@ -191,7 +191,7 @@ def boards_to_graphs(
         # Row/Col
         symbols += [f"Row{r}" for r in range(board_dim)]
         symbols += [f"Col{c}" for c in range(board_dim)]
-        #symbols += goal_nodes
+        symbols += goal_nodes
 
         # Reachability, winning/blocking, turn
         if feature_mode in ("domain", "domain_turn"):
