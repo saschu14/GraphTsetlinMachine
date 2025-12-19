@@ -143,6 +143,7 @@ def _winning_moves_one(board: np.ndarray, player_val: int) -> np.ndarray:
 def boards_to_graphs(
     boards: np.ndarray,
     board_dim: int,
+    feature_mode: str = "domain",  # "baseline", "domain", "domain_turn"
     base_graphs: Graphs | None = None,
     hypervector_size: int = 1024,
     hypervector_bits: int = 8,
@@ -185,16 +186,24 @@ def boards_to_graphs(
     # ---- Symbols (vocabulary) ----
     if base_graphs is None:
         symbols = ["Empty", "Player0", "Player1"]
-        symbols += [f"Row{r}" for r in range(board_dim)]
-        symbols += [f"Col{c}" for c in range(board_dim)]
-        symbols += goal_nodes
-        symbols += ["P0_RT", "P0_RB", "P0_BOTH", "P1_RL", "P1_RR", "P1_BOTH"]
 
-        # Winning move properties for 2 moves before game end
-        symbols += ["P0_WIN1", "P1_WIN1", "P0_BLOCK1", "P1_BLOCK1"]
+        if feature_mode != "baseline":
+            symbols += [f"Row{r}" for r in range(board_dim)]
+            symbols += [f"Col{c}" for c in range(board_dim)]
+            symbols += goal_nodes
 
-        # To-move property (for non-completed games)
-        symbols += ["P0_TO_MOVE", "P1_TO_MOVE"]
+            symbols += [
+                "P0_RT", "P0_RB", "P0_BOTH",
+                "P1_RL", "P1_RR", "P1_BOTH",
+            ]
+
+            symbols += [
+                "P0_WIN1", "P1_WIN1",
+                "P0_BLOCK1", "P1_BLOCK1",
+            ]
+
+            if feature_mode == "domain_turn":
+                symbols += ["P0_TO_MOVE", "P1_TO_MOVE"]
 
         graphs = Graphs(
             number_of_graphs=n_graphs,
@@ -268,34 +277,36 @@ def boards_to_graphs(
                     destination_node_name=dst,
                     edge_type_name=etype,
                 )
-        num_p0 = np.sum(board == 1)
-        num_p1 = np.sum(board == 2)
+        
+        if feature_mode == "domain_turn":
+            num_p0 = np.sum(board == 1)
+            num_p1 = np.sum(board == 2)
 
-        if num_p0 == num_p1:
-            turn = "P0_TO_MOVE"
-        else:
-            turn = "P1_TO_MOVE"
+            if num_p0 == num_p1:
+                turn = "P0_TO_MOVE"
+            else:
+                turn = "P1_TO_MOVE"
 
-        # Goal edges (only for stones on relevant borders)
-        for u in range(num_board_nodes):
-            # Add to-move property
-            graphs.add_graph_node_property(g, str(u), turn)
-            
-            # Cell position
-            r, c = divmod(u, board_dim)
-            v = int(board[r, c])
-            name = str(u)
+            # Goal edges (only for stones on relevant borders)
+            for u in range(num_board_nodes):
+                # Add to-move property
+                graphs.add_graph_node_property(g, str(u), turn)
+                
+                # Cell position
+                r, c = divmod(u, board_dim)
+                v = int(board[r, c])
+                name = str(u)
 
-            if v == 1:
-                if r == 0:
-                    graphs.add_graph_node_edge(g, name, "P0_TOP", "P0_GOAL")
-                if r == board_dim - 1:
-                    graphs.add_graph_node_edge(g, name, "P0_BOTTOM", "P0_GOAL")
-            elif v == 2:
-                if c == 0:
-                    graphs.add_graph_node_edge(g, name, "P1_LEFT", "P1_GOAL")
-                if c == board_dim - 1:
-                    graphs.add_graph_node_edge(g, name, "P1_RIGHT", "P1_GOAL")
+                if v == 1:
+                    if r == 0:
+                        graphs.add_graph_node_edge(g, name, "P0_TOP", "P0_GOAL")
+                    if r == board_dim - 1:
+                        graphs.add_graph_node_edge(g, name, "P0_BOTTOM", "P0_GOAL")
+                elif v == 2:
+                    if c == 0:
+                        graphs.add_graph_node_edge(g, name, "P1_LEFT", "P1_GOAL")
+                    if c == board_dim - 1:
+                        graphs.add_graph_node_edge(g, name, "P1_RIGHT", "P1_GOAL")
 
     # ---- Add properties (incl. reachability) ----
     for g in range(n_graphs):
@@ -344,8 +355,9 @@ def boards_to_graphs(
             else:
                 raise ValueError(f"Invalid cell value {v} at {(r, c)}")
 
-            graphs.add_graph_node_property(g, node, f"Row{r}")
-            graphs.add_graph_node_property(g, node, f"Col{c}")
+            if feature_mode != "baseline":
+                graphs.add_graph_node_property(g, node, f"Row{r}")
+                graphs.add_graph_node_property(g, node, f"Col{c}")
 
             if v == 1:
                 if p0_rt[r, c]:

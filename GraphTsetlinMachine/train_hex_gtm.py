@@ -61,6 +61,7 @@ def train_and_evaluate(
     hypervector_size: int = 128,
     hypervector_bits: int = 2,
     seed: int = 1,
+    feature_mode: str = "domain",
     log_every: int = 1,
     eval_every: int = 0,
     balance_train: bool = True,
@@ -107,6 +108,7 @@ def train_and_evaluate(
     graphs_train = boards_to_graphs(
         boards_train,
         board_dim=BOARD_DIM,
+        feature_mode=feature_mode,
         base_graphs=None,
         hypervector_size=hypervector_size,
         hypervector_bits=hypervector_bits,
@@ -116,6 +118,7 @@ def train_and_evaluate(
     graphs_test = boards_to_graphs(
         boards_test,
         board_dim=BOARD_DIM,
+        feature_mode=feature_mode,
         base_graphs=graphs_train,
         hypervector_size=hypervector_size,
         hypervector_bits=hypervector_bits,
@@ -261,7 +264,9 @@ def main():
     parser.add_argument("--hypervector-size", type=int, default=128)
     parser.add_argument("--hypervector-bits", type=int, default=2)
     parser.add_argument("--seed", type=int, default=1)
-
+    parser.add_argument("--features", choices=["baseline", "domain", "domain_turn"], default="domain", 
+                        help="Feature set to use, baseline only include occupancy, domain includes row/column info and border reachability, domain_turn also encodes turn number.",
+)
     parser.add_argument("--log-every", type=int, default=1, help="Print timing every N chunks (default: 1)")
     parser.add_argument("--eval-every", type=int, default=5, help="Evaluate accuracy every N epochs (0=off)")
 
@@ -284,6 +289,7 @@ def main():
         hypervector_size=args.hypervector_size,
         hypervector_bits=args.hypervector_bits,
         seed=args.seed,
+        feature_mode=args.features,
         log_every=args.log_every,
         eval_every=args.eval_every,
         balance_train=(not args.no_balance),
