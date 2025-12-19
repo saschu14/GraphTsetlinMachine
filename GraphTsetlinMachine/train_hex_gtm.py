@@ -265,7 +265,7 @@ def main():
     parser.add_argument("--hypervector-bits", type=int, default=2)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--features", choices=["baseline", "domain", "domain_turn"], default="domain", 
-                        help="Feature set to use, baseline only include occupancy, domain includes row/column info and border reachability, domain_turn also encodes turn number.",
+                        help="Feature set to use, baseline only include occupancy and row/col/goal, domain includes border reachability, domain_turn also encodes turn number.",
 )
     parser.add_argument("--log-every", type=int, default=1, help="Print timing every N chunks (default: 1)")
     parser.add_argument("--eval-every", type=int, default=5, help="Evaluate accuracy every N epochs (0=off)")
